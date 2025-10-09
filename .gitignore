@@ -1,4 +1,9 @@
-.Rproj.user
+# RStudio project files
+.Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
+
+# Logs and temp files
+*.log
+*.tmp
