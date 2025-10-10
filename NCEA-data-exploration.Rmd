@@ -1,15 +1,15 @@
 ```{r}
 library(terra)
 library(raster)
+library(sf)
+library(dplyr)
+library(tidyr)
 #Create directory to save data to Data Lake
 #Save all files here:
 #dir.create("/dbfs/mnt/lab/unrestricted/amy.gresham@defra.gov.uk")
 
 ```
 
-```{r}
-
-```
 
 ```{r}
 #Read in Living England from Databricks ####
@@ -41,7 +41,25 @@ file.copy("/tmp/Living_England_2022_2023_whole_raster.tif",
 ```
 
 ```{r}
-#Read in 
+#Read in Priority Habitats England shapefile
+
+PH_eng <- st_read("/dbfs/mnt/base/unrestricted/source_defra_data_services_platform/dataset_priority_habitats_inventory_eng/format_SHP_priority_habitats_inventory_eng/LATEST_priority_habitats_inventory_eng/ne_priority_habitat_inventory_england.shp")
+unique(PH_eng$habcodes)
+
+# Step 1: Split rows with multiple habitat codes
+PH_eng_split <- PH_eng %>%
+  separate_rows(habcodes, sep = ",\\s*")  # handles comma + optional space
+
+# Step 2: Create a lookup table of unique habitat codes with numeric IDs
+habitat_lookup <- PH_eng_split %>%
+  distinct(habcodes) %>%
+  arrange(habcodes) %>%
+  mutate(habitat_id = row_number())
+
+# Step 3: Join the numeric ID back to the main dataset
+PH_eng_final <- PH_eng_split %>%
+  left_join(habitat_lookup, by = "habcodes")
+
 
 
 ```
