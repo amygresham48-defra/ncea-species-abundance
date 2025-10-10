@@ -29,8 +29,14 @@ stitched_raster <- do.call(merge, raster_list)
 #plot spatraster
 plot(stitched_raster)
 
-#save living england 2022_2023 whole raster
-writeRaster(stitched_raster,"/dbfs/mnt/lab/unrestricted/amy.gresham@defra.gov.uk/Living_England_2022_2023_whole_raster.tif") 
+# Save to local temp directory
+writeRaster(stitched_raster, "/tmp/Living_England_2022_2023_whole_raster.tif", overwrite = TRUE)
+
+# Then move it to DBFS using system command
+file.copy("/tmp/Living_England_2022_2023_whole_raster.tif",
+          "/dbfs/mnt/lab/unrestricted/amy.gresham@defra.gov.uk/Living_England_2022_2023_whole_raster.tif")
+
+
 
 ```
 
