@@ -3,6 +3,7 @@
 .Rhistory
 .RData
 .Ruserdata
+Output/
 
 # Logs and temp files
 *.log
