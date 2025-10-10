@@ -1,0 +1,42 @@
+```{r}
+library(terra)
+library(raster)
+#Create directory to save data to Data Lake
+#Save all files here:
+#dir.create("/dbfs/mnt/lab/unrestricted/amy.gresham@defra.gov.uk")
+
+```
+
+```{r}
+
+```
+
+```{r}
+#Read in Living England from Databricks ####
+
+# Define the folder path (adjust for DBFS mount)
+living_england_folder_path <- "/dbfs/mnt/base/unrestricted/source_defra_data_services_platform/dataset_living_england_2022_2023/format_GEOTIFF_living_england_2022_2023/LATEST_living_england_2022_2023"
+
+# List all .tif files in the folder
+raster_files <- list.files(living_england_folder_path, pattern = "\\.tif$", full.names = TRUE)
+
+# Read all rasters into a SpatRaster list
+raster_list <- lapply(raster_files, rast)
+
+# Stitch them together
+stitched_raster <- do.call(merge, raster_list)
+
+#plot spatraster
+plot(stitched_raster)
+
+#save living england 2022_2023 whole raster
+writeRaster(stitched_raster,"/dbfs/mnt/lab/unrestricted/amy.gresham@defra.gov.uk/Living_England_2022_2023_whole_raster.tif") 
+
+```
+
+```{r}
+#Read in 
+
+
+```
+
