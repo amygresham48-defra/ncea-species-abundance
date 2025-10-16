@@ -1,6 +1,15 @@
 #Using the River Surveillance Network dataset
 
 ```{r}
+library(terra)
+library(raster)
+library(sf)
+library(dplyr)
+library(tidyr)
+```
+
+
+```{r}
 #Read in sampling points of RSN
 
 #Can't get access to whole dataset so just use example dataset for now:
