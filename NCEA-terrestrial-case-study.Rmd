@@ -1,0 +1,16 @@
+#NCEA Terrestrial case study
+
+```{r}
+library(terra)
+library(raster)
+library(sf)
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+#Read in Summarised Botanical Heat Map (1km)
+
+botanic_value_1km <- st_read("/dbfs/mnt/base/unrestricted/source_defra_data_services_platform/dataset_botanical_value_maps/format_SHP_botanical_value_maps/LATEST_botanical_value_maps/Summarised_Botanical_Value_Map_2021_EnglandPolygon.shp")
+```
+
