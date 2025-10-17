@@ -6,11 +6,260 @@ library(raster)
 library(sf)
 library(dplyr)
 library(tidyr)
+library(purrr)
+library(stringr)
+
+bng <- 27700
+
+```
+
+```{r Read-in-2023-2024-monads and clip to England only}
+#Read in England Ecosystem survey monad grid references
+#Monads surveyed in 2023:
+monads_2023 <- st_read("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/HR_Monad.shp")
+
+#select ID and geometry columns
+monads_2023_ids <- dplyr::select(monads_2023, monad_id, monad_ref, geometry)
+monads_2023_ids$survey_year <- 2023 
+
+#Read in UK region shapefile
+GB <- st_read("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/infuse_ctry_2011.shp")
+plot(GB$geometry)
+England <- GB %>% filter(name == "England")
+# Create 2 km buffer around England
+England_buffer_2km <- st_buffer(England, dist = 2000)
+st_crs(England_buffer_2km) <- 27700
+
+# Ensure CRS matches
+monads_2023 <- st_transform(monads_2023, st_crs(England))
+
+#Filter out monads that do not spatially intersect with England
+monads_in_england <- st_filter(monads_2023, England, .predicate = st_intersects)
+
+#Plot
+plot(England$geometry)
+plot(monads_in_england$geometry,add=TRUE)
 ```
 
 ```{r}
 #Read in Summarised Botanical Heat Map (1km)
 
 botanic_value_1km <- st_read("/dbfs/mnt/base/unrestricted/source_defra_data_services_platform/dataset_botanical_value_maps/format_SHP_botanical_value_maps/LATEST_botanical_value_maps/Summarised_Botanical_Value_Map_2021_EnglandPolygon.shp")
+st_crs(botanic_value_1km)
+
+#Inspect unique strings in value column
+unique(botanic_value_1km$valuect)
+unique(botanic_value_1km$survycv)
+
+#Step 1: Extract the value of individual monads
+#subset monad_ref for monads sampled in 2023
+botanic_value_1km_2023_monads <- st_filter(botanic_value_1km, monads_in_england, by = c("monad" = "monad_ref"))
+
+#Step 2: Create numeric column for valuect
+botanic_value_1km_2023_monads <- botanic_value_1km_2023_monads %>%
+  mutate(valuect_number = case_when(
+    valuect == "High" ~ 3,
+    valuect == "Moderate" ~ 2,
+    valuect == "Low" ~ 1,
+    valuect == "no indicators, poor survey coverage" ~ 0,
+    TRUE ~ NA_real_  # Handles any unexpected values
+  ))
+
+hist(botanic_value_1km_2023_monads$valuect_number)
+
+#Step 3: Make a new value category column that is an average of habitats that are relevant to pollinators
+head(botanic_value_1km_2023_monads)
+#rstsp = Total number of Rare, Scarce and Threatened (RST) plant species recorded in the monad
+#score for each habitat type = number of associated Priority Habitat Positive Indicator (PHPI) species
+
+botanic_value_1km_2023_monads <- botanic_value_1km_2023_monads %>%
+  mutate(
+    rstsp_numeric = case_when(rstsp == "High" ~ 3, 
+                              rstsp == "Moderate" ~ 2,
+                              rstsp == "Low" ~ 1,
+                              rstsp == "no indicators, poor survey coverage" ~ 0,
+                              TRUE ~ NA_real_),
+    arable_numeric = case_when(arable == "High" ~ 3,
+                               arable == "Moderate" ~ 2,
+                               arable == "Low" ~ 1,
+                               arable == "no indicators, poor survey coverage" ~ 0,
+                               TRUE ~ NA_real_),
+    boundry_numeric = case_when(boundry == "High" ~ 3,
+                                boundry == "Moderate" ~ 2,
+                                boundry == "Low" ~ 1,
+                                boundry == "no indicators, poor survey coverage" ~ 0,
+                                TRUE ~ NA_real_),
+    coastal_numeric = case_when(coastal == "High" ~ 3,
+                                coastal == "Moderate" ~ 2,
+                                coastal == "Low" ~ 1,
+                                coastal == "no indicators, poor survey coverage" ~ 0,
+                                TRUE ~ NA_real_),
+    fnmrshs_numeric = case_when(fnmrshs == "High" ~ 3,
+                                fnmrshs == "Moderate" ~ 2,
+                                fnmrshs == "Low" ~ 1,
+                                fnmrshs == "no indicators, poor survey coverage" ~ 0,
+                                TRUE ~ NA_real_),
+    grsslnd_numeric = case_when(grsslnd == "High" ~ 3,
+                                grsslnd == "Moderate" ~ 2,
+                                grsslnd == "Low" ~ 1,
+                                grsslnd == "no indicators, poor survey coverage" ~ 0,
+                                TRUE ~ NA_real_),
+    heathbg_numeric = case_when(heathbg == "High" ~ 3,
+                                heathbg == "Moderate" ~ 2,
+                                heathbg == "Low" ~ 1,
+                                heathbg == "no indicators, poor survey coverage" ~ 0,
+                                TRUE ~ NA_real_),
+    montane_numeric = case_when(montane == "High" ~ 3,
+                                montane == "Moderate" ~ 2,
+                                montane == "Low" ~ 1,
+                                montane == "no indicators, poor survey coverage" ~ 0,
+                                TRUE ~ NA_real_),
+    woodlnd_numeric = case_when(woodlnd == "High" ~ 3,
+                                woodlnd == "Moderate" ~ 2,
+                                woodlnd == "Low" ~ 1,
+                                woodlnd == "no indicators, poor survey coverage" ~ 0,
+                                TRUE ~ NA_real_)
+    
+  ) 
+
+hist(botanic_value_1km_2023_monads$valuect_number)
+
+```
+
+```{r}
+#Calculate connectivity of monads based on the botanic quality of the surrounding grid cells
+#n grid cells = 8
+#overall botanic heat map values = High (3), Moderate (2), Low (1), no indicators, poor survey coverage
+#Excluding the monads with poor survey coverage, calculate the average quality value of the 8 neighbouring cells. This will be the connectivity metric.
+#See if median performs better?
+
+#1. Extract centroid coordinates for each monad
+monads_centroids <- st_centroid(botanic_value_1km_2023_monads)
+coords <- st_coordinates(monads_centroids)
+botanic_value_1km_2023_monads <- botanic_value_1km_2023_monads %>%
+  mutate(x = coords[,1], y = coords[,2])
+
+
+#2. Define neighbour offsets (+/- 1000m in x and y)
+offsets <- expand.grid(dx = c(-1000, 0, 1000), dy = c(-1000, 0, 1000)) %>%
+  filter(!(dx == 0 & dy == 0))  # exclude the center cell
+
+#3. Generate neighbor coordinates for all monads
+neighbors_df <- botanic_value_1km_2023_monads %>%
+  select(monad, x, y) %>%
+  crossing(offsets) %>%
+  mutate(neighbor_x = x + dx,
+         neighbor_y = y + dy)
+
+#4. Prepare full grid with centroid coordinates
+grid_centroids <- st_centroid(botanic_value_1km)
+grid_coords <- st_coordinates(grid_centroids)
+botanic_value_1km <- botanic_value_1km %>%
+  mutate(grid_x = grid_coords[,1], grid_y = grid_coords[,2])
+
+#5. Join neighbors to grid
+neighbors_with_values <- neighbors_df %>%
+  left_join(botanic_value_1km %>% 
+              st_drop_geometry() %>% 
+select(grid_x, grid_y, valuect),
+            by = c("neighbor_x" = "grid_x", "neighbor_y" = "grid_y"))
+
+#6. make numeric value column
+
+neighbors_with_values <- neighbors_with_values %>%
+  mutate(
+    valuect_numeric = case_when(valuect == "High" ~ 3, 
+                              valuect == "Moderate" ~ 2,
+                              valuect == "Low" ~ 1,
+                              valuect == "no indicators, poor survey coverage" ~ 0,
+                              TRUE ~ NA_real_))
+
+#7. Calculate connectivity score
+connectivity_scores <- neighbors_with_values %>%
+  group_by(monad) %>%
+  summarise(connectivity_mean = mean(valuect_numeric[valuect_numeric > 0], na.rm = TRUE))
+
+hist(connectivity_scores$connectivity_mean)
+
+#8. Join back to botanic_value_1km_2023_monads
+
+botanic_value_1km_2023_monads <- botanic_value_1km_2023_monads %>%
+  left_join(connectivity_scores, by = "monad")
+
+
+#9. Export to inspect
+st_write(botanic_value_1km_2023_monads, "/tmp/connectivity_monads_botanic_heat.gpkg", delete_dsn = TRUE)
+# Then move it to DBFS using system command
+file.copy("/tmp/connectivity_monads_botanic_heat.gpkg",
+          "/dbfs/mnt/lab/unrestricted/amy.gresham@defra.gov.uk/connectivity_monads_botanic_heat.gpkg")
+
+st_write(botanic_value_1km_2023_monads, "/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Output/connectivity_monads_botanic_heat.shp", append=FALSE)
+
+```
+
+```{r}
+vascular_plants_2023 <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/HR_Veg_vascular_plants_57.csv")
+
+#Read in name list from Sweet
+
+plant_names <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/Sweet major plant list  TVK.csv")
+
+#Get NBN accession number, common name and scientific name
+
+plant_names <- plant_names %>% 
+  dplyr::rename(scientific_name = RECOMMENDED_SCIENTIFIC_NAME,
+                nbn_key = NBN_TAXON_VERSION_KEY)
+
+# Perform the left join
+vascular_plants_2023_names <- merge(
+  x = vascular_plants_2023,
+  y = plant_names,
+  by.x = "Species",
+  by.y = "nbn_key",
+  all.x = TRUE
+)
+
+#Create genus, species and common_name columns
+vascular_plants_2023_names <- vascular_plants_2023_names %>%
+  mutate(
+    genus = word(scientific_name, 1),
+    species = if_else(
+      str_detect(scientific_name, "\\b\\w+\\s+\\w+"),
+      word(scientific_name, 2),
+      NA_character_
+    ),
+    common_name = str_extract(scientific_name, "(?<=\\().+?(?=\\))")
+  )
+
+#Read in vegetation plot names
+
+veg_plots_2023 <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/HR_Vegetation_plot_9.csv")
+
+# Join veg_plots_2023 to vascular_plants_2023_names by Veg.plot.ID
+vascular_plants_2023_monads <- left_join(
+  vascular_plants_2023_names,
+  veg_plots_2023 %>% dplyr::select(Veg.plot.ID, Monad.ID),
+  by = "Veg.plot.ID"
+)
+
+# Join monad_ref from veg_monads_2023 using Monad.ID and monad_id
+vascular_plants_2023_monads_ref <- left_join(
+  vascular_plants_2023_monads,
+  monads_in_england %>% dplyr::select(monad_id, monad_ref),
+  by = c("Monad.ID" = "monad_id")
+)
+
+```
+
+```{r}
+
+```
+
+
+```{r}
+#Read in stitched Living England 2022-2023
+LE <- raster( "/dbfs/mnt/lab/unrestricted/amy.gresham@defra.gov.uk/Living_England_2022_2023_whole_raster.tif")
+crs(LE) <- 27700 # british national grid
+
 ```
 
