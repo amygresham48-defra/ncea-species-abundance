@@ -8,6 +8,7 @@ library(dplyr)
 library(tidyr)
 library(purrr)
 library(stringr)
+library(ggplot2)
 
 bng <- 27700
 
@@ -197,7 +198,8 @@ st_write(botanic_value_1km_2023_monads, "/home/amy.gresham@defra.gov.uk/ncea-spe
 
 ```
 
-```{r}
+```{r Assign common names to vascular plants and join to }
+
 vascular_plants_2023 <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/HR_Veg_vascular_plants_57.csv")
 
 #Read in name list from Sweet
@@ -231,6 +233,7 @@ vascular_plants_2023_names <- vascular_plants_2023_names %>%
     common_name = str_extract(scientific_name, "(?<=\\().+?(?=\\))")
   )
 
+
 #Read in vegetation plot names
 
 veg_plots_2023 <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/HR_Vegetation_plot_9.csv")
@@ -252,7 +255,119 @@ vascular_plants_2023_monads_ref <- left_join(
 ```
 
 ```{r}
+#Quality control checking of vascular plant data
 
+#Identify any veg plots that have been surveyed more than once
+repeat_surveys <- veg_plots_2023 %>%
+  group_by(Veg.plot.ID) %>%
+  summarise(n_surveys = n_distinct(Survey.start)) %>%
+  filter(n_surveys > 1)
+#No duplicates identified - each veg plot surveyed only once
+
+#List the Veg.plot.IDs in vascular_plants_2023_names that don’t exist in veg_plots_2023.
+mismatched_plan_df_ids <-anti_join(vascular_plants_2023_names, veg_plots_2023, by = "Veg.plot.ID") %>%
+  distinct(Veg.plot.ID)
+#24 veg plots apprear in vascular_plant_2023_names that do not appear in the veg plot dataset
+mismatched_veg_plot_ids <- anti_join(veg_plots_2023, vascular_plants_2023_names, by = "Veg.plot.ID") %>%
+  distinct(Veg.plot.ID)
+#35 veg plot ids appear in veg plot dataset that do not appear in the vascular plant dataset
+
+#Get the number of unique veg plots for every monad in the veg plot dataset
+veg_plot_counts_vegplots2023 <- veg_plots_2023 %>%
+  group_by(Monad.reference, Monad.ID) %>%
+  summarise(
+    n_veg_plots = n_distinct(Veg.plot.ID),
+    .groups = "drop"
+  ) %>%
+  arrange(Monad.reference)
+
+#Inspect percentage cover of veg plots in vascular plant dataset - do they all add up to 100?
+# Summarise cover per plot
+cover_check <- vascular_plants_2023 %>%
+  group_by(Veg.plot.ID) %>%
+  summarise(
+    total_cover = sum(Cover.., na.rm = TRUE),
+    n_species = n(),
+    .groups = "drop"
+  ) %>%
+  filter(total_cover > 0) %>%
+  arrange(total_cover)
+
+
+```
+
+
+
+```{r}
+# Diversity and evenness of plants
+
+#Sites with greater plant diversity and cover will support a greater abundance of pollinators
+
+# Step 1: Create full binomial names from genus and species
+vascular_plants_2023_monads_ref <- vascular_plants_2023_monads_ref %>%
+  mutate(binomial = ifelse(is.na(species), genus, paste(genus, species)))
+
+#Get taxonomic richness per monad at the genus level
+
+# plant_names <- unique(vascular_plants_2023_monads_ref$binomial)
+# #Export plant names list for classification
+# plant_names_to_export <- vascular_plants_2023_monads_ref %>% dplyr::select(c(genus,species,binomial,common_name,Cover..))
+# #Export
+# write.csv(plant_names_to_export, "/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Output/plant_names_veg_survey_2023.csv")
+
+```
+```{r}
+#Get sward height - indicator of habitat quality
+
+#The four sward columns are the modal sward height from each quarter of the veg plot.
+#Exert from EES manual: "Record modal sward height using a ruler in each quarter  of the plot. This is the height at which most of the  vegetation sits. Ignoring tall stalks, place a hand or card lightly on the vegetation at a level below which about 80% of it is estimated (by eye) to be growing. Read this value off a ruler and record it to the nearest cm. Four values will provide a measure of heterogeneity within the plot."
+
+sward <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/HR_Vegetation_plot_9.csv")
+
+sward <- sward %>% dplyr::select (c(Monad.reference,Veg.plot.ID,Veg.Plot.reference,Sward.height.1..cm.,Sward.height.2..cm.,Sward.height.3..cm.,Sward.height.4..cm.))
+
+# Rename columns
+sward_clean <- sward %>%
+  dplyr::rename(
+    Monad = Monad.reference,
+    PlotID = Veg.plot.ID,
+    PlotRef = Veg.Plot.reference,
+    Height1 = Sward.height.1..cm.,
+    Height2 = Sward.height.2..cm.,
+    Height3 = Sward.height.3..cm.,
+    Height4 = Sward.height.4..cm.
+  )
+
+# Reshape the data from wide to long format
+sward_long <- sward_clean %>%
+  pivot_longer(cols = starts_with("Height"),
+               names_to = "Height_Measurement",
+               values_to = "Height")
+
+# Group by Monad and calculate summary statistics
+sward_summary <- sward_long %>%
+  group_by(Monad) %>%
+  dplyr::summarise(
+    Mean_Height = mean(Height, na.rm = TRUE),
+    SD_Height = sd(Height, na.rm = TRUE),
+    SE_Height = SD_Height / sqrt(n())
+  )
+
+#Reorder Monad factor by Mean_Height
+sward_summary <- sward_summary %>%
+  mutate(Monad = factor(Monad, levels = Monad[order(Mean_Height)]))
+
+
+ggplot(sward_summary, aes(x = Monad, y = Mean_Height)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_errorbar(aes(ymin = Mean_Height - SE_Height,
+                    ymax = Mean_Height + SE_Height),
+                width = 0.2) +
+  theme_minimal() +
+  labs(title = "Mean Sward Height per Monad",
+       x = "Monad",
+       y = "Mean Height (± SE)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 
