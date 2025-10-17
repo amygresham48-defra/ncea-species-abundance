@@ -42,6 +42,7 @@ plot(England$geometry)
 plot(monads_in_england$geometry,add=TRUE)
 ```
 
+
 ```{r}
 #Read in Summarised Botanical Heat Map (1km)
 
@@ -252,70 +253,43 @@ vascular_plants_2023_monads_ref <- left_join(
   by = c("Monad.ID" = "monad_id")
 )
 
-#Check the most common plants in the dataset by occurrence and by percentage cover
-
-```
-
-```{r}
-#Quality control checking of vascular plant data
-
-#Identify any veg plots that have been surveyed more than once
-repeat_surveys <- veg_plots_2023 %>%
-  group_by(Veg.plot.ID) %>%
-  summarise(n_surveys = n_distinct(Survey.start)) %>%
-  filter(n_surveys > 1)
-#No duplicates identified - each veg plot surveyed only once
-
-#List the Veg.plot.IDs in vascular_plants_2023_names that don’t exist in veg_plots_2023.
-mismatched_plan_df_ids <-anti_join(vascular_plants_2023_names, veg_plots_2023, by = "Veg.plot.ID") %>%
-  distinct(Veg.plot.ID)
-#24 veg plots apprear in vascular_plant_2023_names that do not appear in the veg plot dataset
-mismatched_veg_plot_ids <- anti_join(veg_plots_2023, vascular_plants_2023_names, by = "Veg.plot.ID") %>%
-  distinct(Veg.plot.ID)
-#35 veg plot ids appear in veg plot dataset that do not appear in the vascular plant dataset
-
-#Get the number of unique veg plots for every monad in the veg plot dataset
-veg_plot_counts_vegplots2023 <- veg_plots_2023 %>%
-  group_by(Monad.reference, Monad.ID) %>%
-  summarise(
-    n_veg_plots = n_distinct(Veg.plot.ID),
-    .groups = "drop"
-  ) %>%
-  arrange(Monad.reference)
-
-#Inspect percentage cover of veg plots in vascular plant dataset - do they all add up to 100?
-# Summarise cover per plot
-cover_check <- vascular_plants_2023 %>%
-  group_by(Veg.plot.ID) %>%
-  summarise(
-    total_cover = sum(Cover.., na.rm = TRUE),
-    n_species = n(),
-    .groups = "drop"
-  ) %>%
-  filter(total_cover > 0) %>%
-  arrange(total_cover)
-
-
-```
-
-
-
-```{r}
-# Diversity and evenness of plants
-
-#Sites with greater plant diversity and cover will support a greater abundance of pollinators
-
-# Step 1: Create full binomial names from genus and species
+#Create full binomial names from genus and species
 vascular_plants_2023_monads_ref <- vascular_plants_2023_monads_ref %>%
   mutate(binomial = ifelse(is.na(species), genus, paste(genus, species)))
 
-#Get taxonomic richness per monad at the genus level
+# Convert scientific_name column to character
+vascular_names <- as.character(vascular_plants_2023_monads_ref$scientific_name)
+print(unique(sort(vascular_names)))
 
-# plant_names <- unique(vascular_plants_2023_monads_ref$binomial)
-# #Export plant names list for classification
-# plant_names_to_export <- vascular_plants_2023_monads_ref %>% dplyr::select(c(genus,species,binomial,common_name,Cover..))
-# #Export
-# write.csv(plant_names_to_export, "/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Output/plant_names_veg_survey_2023.csv")
+#Modify some names so that they match those in the nectar dataset
+vascular_plants_2023_monads_ref <- vascular_plants_2023_monads_ref %>%
+  mutate(
+    scientific_name = str_replace(as.character(.data[["scientific_name"]]), "^Brassica$", "Brassica spp"),
+    binomial = str_replace(as.character(.data[["binomial"]]), "^Brassica$", "Brassica spp")
+  )
+
+#Check the most common plants in the dataset by occurrence and by percentage cover
+
+species_summary <- vascular_plants_2023_monads_ref %>%
+  filter(!is.na(monad_ref)) %>%
+  group_by(binomial) %>%
+  summarise(
+    monad_count = n_distinct(monad_ref),         # Number of unique monads
+    total_cover = sum(Cover.., na.rm = TRUE)     # Total percentage cover
+  ) %>%
+  arrange(desc(monad_count), desc(total_cover))  # Sort by prevalence
+
+#After about 100 plants, the total cover starts to drop off
+top_plants_cover <- species_summary %>%
+  slice_max(order_by = total_cover, n = 100)
+
+top_plants_presence <- species_summary %>%
+  slice_max(order_by = monad_count, n = 100)
+
+#Most plants in one list also occur in the other, but lower down the lists there are different plants
+#I think let's go for the most commonly occurring plants across the monads (presence rather than cover)
+#Now see if you can match these most common plants with the nectar production datasets
+
 
 ```
 
@@ -343,6 +317,9 @@ head(nectar1)
 #Nectar measure: sugar content in ug per floral unit per day
 nectar2 <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/Nectar_sugar_per_taxon.csv")
 nectar2 <- nectar2 %>% select(c("taxon","sugar_per_floral_unit_ug"))
+nectar2 <- nectar2 %>%
+  mutate(taxon = str_replace_all(taxon, "\\bagg\\b", "agg."))
+#Replace "Taraxacum agg" with "Taraxacum agg."
 head(nectar2)
 
 #3. -	A dataset of nectar sugar production for flowering plants found in urban green spaces - Tew - 2023 - Ecological Solutions and Evidence - Wiley Online Library: https://besjournals.onlinelibrary.wiley.com/doi/full/10.1002/2688-8319.12248
@@ -351,9 +328,123 @@ nectar3 <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/
 nectar3 <- nectar3 %>% select(c("Taxon","Nectar_mass_mean"))
 head(nectar3)
 
-#Identify which taxa from these three datasets are present in the EES vascular plant data
+# Combine all nectar taxon names
+nectar_taxa <- unique(c(nectar1$taxon, nectar2$taxon, nectar3$taxon))
+
+# Convert to character to avoid factor issues
+nectar_taxa <- as.character(nectar_taxa)
+print(sort(nectar_taxa))
+
+# Find matches using partial string matching
+matched_taxa <- nectar_taxa[sapply(nectar_taxa, function(x) any(grepl(x, vascular_names, ignore.case = TRUE)))]
+print(sort(matched_taxa))
+
+#See how many of these taxa occur in the EES vascular plant dataset in the top 100 most frequently occurring species across monads
+matched_in_top_presence <- top_plants_presence %>%
+  filter(binomial %in% matched_taxa)
+
+matched_in_top_cover <- top_plants_cover %>%
+  filter(binomial %in% matched_taxa)
+
+#These plant taxa, top of the vascular plant dataset in occurrence and cover, that also match with the nectar datasets, will be the measure of nectar availability in the monads
 
 ```
+
+```{r}
+#Identify which taxa from these three datasets are present in the EES vascular plant data
+# Standardize column names for matching
+names(nectar1)[1] <- "taxon"
+names(nectar2)[1] <- "taxon"
+names(nectar3)[1] <- "taxon"
+
+#See how many taxa are replicated across these datasets
+# Step 1: Extract unique taxa from each dataset
+taxa1 <- unique(nectar1$taxon)
+taxa2 <- unique(nectar2$taxon)
+taxa3 <- unique(nectar3$taxon)
+
+# Step 2: Combine all taxa into one vector
+all_taxa <- c(taxa1, taxa2, taxa3)
+
+# Step 3: Count duplicates
+duplicated_taxa <- all_taxa[duplicated(all_taxa)]
+print(sort(duplicated_taxa))
+#n duplicates = 187, will need to either take average nectar production measurements from across the datasets, or decide on a dominant dataset.
+
+#Take the average across the datasets for these 187 taxa, then inspect the standard deviations on a plot (boxplot?)
+# Step 1: Combine all nectar datasets into one
+
+names(nectar1)[2] <- "nectar_ug_per_flower_per_day"
+names(nectar2)[2] <- "nectar_ug_per_flower_per_day"
+names(nectar3)[2] <- "nectar_ug_per_flower_per_day"
+
+# Convert nectar values to numeric in all three datasets
+nectar1$nectar_ug_per_flower_per_day <- as.numeric(nectar1$nectar_ug_per_flower_per_day)
+nectar2$nectar_ug_per_flower_per_day <- as.numeric(nectar2$nectar_ug_per_flower_per_day)
+nectar3$nectar_ug_per_flower_per_day <- as.numeric(nectar3$nectar_ug_per_flower_per_day)
+
+# Now safely combine them
+nectar_all <- rbind(nectar1, nectar2, nectar3)
+
+# Find exact duplicate rows across the combined dataset
+duplicates_across_sources <- nectar_all %>%
+  duplicated() %>%
+  which()
+
+# View those duplicated rows
+nectar_all[duplicates_across_sources, ]
+
+#There are some duplicates, perhaps because of something I've done, or perhaps the papers used information from the same sources in their studies
+# Step 2: Filter for duplicated rows
+nectar_all_unique <- nectar_all %>%
+  distinct()
+
+# Step 3: Calculate mean and standard deviation per taxon
+nectar_stats <- nectar_repeated %>%
+  group_by(taxon) %>%
+  summarise(
+    mean_sugar = mean(nectar_sugar, na.rm = TRUE),
+    sd_sugar = sd(nectar_sugar, na.rm = TRUE),
+    n = n()
+  ) %>%
+  arrange(desc(mean_sugar))
+
+# Step 4: Visualize variation using boxplot
+ggplot(nectar_repeated, aes(x = reorder(taxon, nectar_sugar), y = nectar_sugar)) +
+  geom_boxplot(fill = "lightblue", color = "darkblue") +
+  coord_flip() +
+  labs(
+    title = "Variation in Nectar Sugar Content for Repeated Taxa",
+    x = "Taxon",
+    y = "Nectar Sugar Content (µg/flower/day)"
+  ) +
+  theme_minimal()
+
+
+
+```
+
+
+```{r}
+# Diversity and evenness of plants
+
+#Sites with greater plant diversity and cover will support a greater abundance of pollinators
+
+# Step 1: Create full binomial names from genus and species
+vascular_plants_2023_monads_ref <- vascular_plants_2023_monads_ref %>%
+  mutate(binomial = ifelse(is.na(species), genus, paste(genus, species)))
+
+#Get taxonomic richness per monad at the genus level
+
+# plant_names <- unique(vascular_plants_2023_monads_ref$binomial)
+# #Export plant names list for classification
+# plant_names_to_export <- vascular_plants_2023_monads_ref %>% dplyr::select(c(genus,species,binomial,common_name,Cover..))
+# #Export
+# write.csv(plant_names_to_export, "/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Output/plant_names_veg_survey_2023.csv")
+
+```
+
+
 
 
 ```{r}
@@ -418,3 +509,44 @@ crs(LE) <- 27700 # british national grid
 
 ```
 
+```{r}
+#Quality control checking of vascular plant data
+
+#Identify any veg plots that have been surveyed more than once
+repeat_surveys <- veg_plots_2023 %>%
+  group_by(Veg.plot.ID) %>%
+  summarise(n_surveys = n_distinct(Survey.start)) %>%
+  filter(n_surveys > 1)
+#No duplicates identified - each veg plot surveyed only once
+
+#List the Veg.plot.IDs in vascular_plants_2023_names that don’t exist in veg_plots_2023.
+mismatched_plan_df_ids <-anti_join(vascular_plants_2023_names, veg_plots_2023, by = "Veg.plot.ID") %>%
+  distinct(Veg.plot.ID)
+#24 veg plots apprear in vascular_plant_2023_names that do not appear in the veg plot dataset
+mismatched_veg_plot_ids <- anti_join(veg_plots_2023, vascular_plants_2023_names, by = "Veg.plot.ID") %>%
+  distinct(Veg.plot.ID)
+#35 veg plot ids appear in veg plot dataset that do not appear in the vascular plant dataset
+
+#Get the number of unique veg plots for every monad in the veg plot dataset
+veg_plot_counts_vegplots2023 <- veg_plots_2023 %>%
+  group_by(Monad.reference, Monad.ID) %>%
+  summarise(
+    n_veg_plots = n_distinct(Veg.plot.ID),
+    .groups = "drop"
+  ) %>%
+  arrange(Monad.reference)
+
+#Inspect percentage cover of veg plots in vascular plant dataset - do they all add up to 100?
+# Summarise cover per plot
+cover_check <- vascular_plants_2023 %>%
+  group_by(Veg.plot.ID) %>%
+  summarise(
+    total_cover = sum(Cover.., na.rm = TRUE),
+    n_species = n(),
+    .groups = "drop"
+  ) %>%
+  filter(total_cover > 0) %>%
+  arrange(total_cover)
+
+
+```
