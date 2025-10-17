@@ -16,7 +16,7 @@ library(tidyr)
 
 RSN_sites_example <- st_read("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/RSN_2024_latlon_coords_XYTableToPoint_ExportFeatures.shp")
 
-#Open combined Living England shapefile
+#Open combined Living England 2022-2023 raster
 
 LE <- raster( "/dbfs/mnt/lab/unrestricted/amy.gresham@defra.gov.uk/Living_England_2022_2023_whole_raster.tif")
 crs(LE) <- 27700 # british national grid
