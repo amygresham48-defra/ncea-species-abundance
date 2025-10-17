@@ -198,7 +198,7 @@ st_write(botanic_value_1km_2023_monads, "/home/amy.gresham@defra.gov.uk/ncea-spe
 
 ```
 
-```{r Assign common names to vascular plants and join to }
+```{r Assign common names to vascular plants and join to monads}
 
 vascular_plants_2023 <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/HR_Veg_vascular_plants_57.csv")
 
@@ -251,6 +251,8 @@ vascular_plants_2023_monads_ref <- left_join(
   monads_in_england %>% dplyr::select(monad_id, monad_ref),
   by = c("Monad.ID" = "monad_id")
 )
+
+#Check the most common plants in the dataset by occurrence and by percentage cover
 
 ```
 
@@ -316,6 +318,44 @@ vascular_plants_2023_monads_ref <- vascular_plants_2023_monads_ref %>%
 # write.csv(plant_names_to_export, "/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Output/plant_names_veg_survey_2023.csv")
 
 ```
+
+```{r}
+#Resource production of flowers for pollinators
+
+#1. We can calculate nectar and pollen production in monads from the vascular plant survey data using existing datasets to get a relative measure of food resource availability for pollinators (see datasets saved in Zotero)
+
+#2. We can assess landscape-scale pollen and nectar production by looking at land cover, e.g. -	Historical nectar assessment reveals the fall and rise of floral resources in Britain | Nature: https://www.nature.com/articles/nature16532#Sec11
+
+#Read in datasets from these three papers which have both measured nectar production in ug per flower per 24 hours
+
+#1. Historical nectar assessment reveals the fall and rise of floral resources in Britain | Nature: https://www.nature.com/articles/nature16532#Sec11
+#Nectar measure: sugar content in ug per flower per day
+
+nectar1 <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/41586_2016_BFnature16532_MOESM67_ESM.csv")
+colnames(nectar1) <- as.character(nectar1[1, ]) #Replace column names with values from row 2
+nectar1<- nectar1[-c(1:2), ] #Remove row 1 and 2
+nectar1 <- nectar1 %>% dplyr::select(c("latin name","nectar sugar content in µg/flower/day"))
+#Remove NAs
+nectar1 <- na.omit(nectar1)
+head(nectar1)
+
+#2. -	Quantifying nectar production by flowering plants in urban and rural landscapes - Tew - 2021 - Journal of Ecology - Wiley Online Library https://besjournals.onlinelibrary.wiley.com/doi/10.1111/1365-2745.13598
+#Nectar measure: sugar content in ug per floral unit per day
+nectar2 <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/Nectar_sugar_per_taxon.csv")
+nectar2 <- nectar2 %>% select(c("taxon","sugar_per_floral_unit_ug"))
+head(nectar2)
+
+#3. -	A dataset of nectar sugar production for flowering plants found in urban green spaces - Tew - 2023 - Ecological Solutions and Evidence - Wiley Online Library: https://besjournals.onlinelibrary.wiley.com/doi/full/10.1002/2688-8319.12248
+#Nectar measure: sugar production in ug per flower per day
+nectar3 <- read.csv("/home/amy.gresham@defra.gov.uk/ncea-species-abundance/Data/Nectar_data_dryad.csv")
+nectar3 <- nectar3 %>% select(c("Taxon","Nectar_mass_mean"))
+head(nectar3)
+
+#Identify which taxa from these three datasets are present in the EES vascular plant data
+
+```
+
+
 ```{r}
 #Get sward height - indicator of habitat quality
 
